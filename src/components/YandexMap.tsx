@@ -41,9 +41,13 @@ const YandexMap = ({ points, onPointClick }: YandexMapProps) => {
         const centerLng = points.reduce((sum, p) => sum + p.lng, 0) / points.length;
 
         mapInstance.current = new window.ymaps.Map(mapRef.current, {
-          center: [centerLat, centerLng],
+          center: [54.7104, 20.5107],
           zoom: 13,
           controls: ['zoomControl', 'geolocationControl'],
+        }, {
+          restrictMapArea: [[54.65, 20.35], [54.77, 20.65]],
+          minZoom: 11,
+          maxZoom: 18
         });
 
         points.forEach((point, index) => {
