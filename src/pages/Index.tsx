@@ -200,58 +200,6 @@ const Index = () => {
     setPhotoFile(null);
   };
 
-  const optimizeRoute = () => {
-    const priorityDistricts = ['Московский', 'Ленинградский'];
-    const uncompletedPoints = routePoints.filter(p => !p.completed);
-    
-    const priorityPoints = uncompletedPoints.filter(p => 
-      priorityDistricts.some(district => p.address.includes(district))
-    );
-    const otherPoints = uncompletedPoints.filter(p => 
-      !priorityDistricts.some(district => p.address.includes(district))
-    );
-    
-    const sortByProximity = (points: RoutePoint[]) => {
-      if (points.length === 0) return [];
-      const sorted = [points[0]];
-      const remaining = [...points.slice(1)];
-      
-      while (remaining.length > 0) {
-        const last = sorted[sorted.length - 1];
-        let closestIndex = 0;
-        let minDistance = Infinity;
-        
-        remaining.forEach((point, idx) => {
-          const distance = Math.sqrt(
-            Math.pow(point.lat - last.lat, 2) + Math.pow(point.lng - last.lng, 2)
-          );
-          if (distance < minDistance) {
-            minDistance = distance;
-            closestIndex = idx;
-          }
-        });
-        
-        sorted.push(remaining[closestIndex]);
-        remaining.splice(closestIndex, 1);
-      }
-      
-      return sorted;
-    };
-    
-    const optimizedPriority = sortByProximity(priorityPoints);
-    const optimizedOther = sortByProximity(otherPoints);
-    const completedPoints = routePoints.filter(p => p.completed);
-    
-    const optimizedRoute = [...completedPoints, ...optimizedPriority, ...optimizedOther];
-    setRoutePoints(optimizedRoute);
-    offlineStorage.saveRouteData({ id: routeId, points: optimizedRoute });
-    
-    toast({
-      title: 'Маршрут оптимизирован! 🎯',
-      description: `Приоритет: ${priorityPoints.length} точек в Московском/Ленинградском районе`,
-    });
-  };
-
   const handleSendReport = async () => {
     if (!routeId) return;
 
@@ -453,24 +401,12 @@ const Index = () => {
           </TabsContent>
         </Tabs>
 
-        <div className="flex gap-3">
-          <Button 
-            onClick={optimizeRoute} 
-            variant="outline" 
-            className="flex-1 gap-2 h-12"
-            disabled={routePoints.filter(p => !p.completed).length === 0}
-          >
-            <Icon name="Route" size={18} />
-            Оптимизировать маршрут
-          </Button>
-        </div>
-
         <Card className="p-4 bg-primary/5 border-primary/20">
           <div className="flex items-start gap-3">
             <Icon name="Info" size={20} className="text-primary mt-0.5" />
             <div className="text-sm">
-              <p className="font-medium text-foreground mb-1">Оптимизация учитывает Московский и Ленинградский районы</p>
-              <p className="text-muted-foreground">Нажмите на точку для отметки выполнения</p>
+              <p className="font-medium text-foreground mb-1">Нажмите на точку для отметки</p>
+              <p className="text-muted-foreground">Укажите количество листовок и добавьте фото</p>
             </div>
           </div>
         </Card>
