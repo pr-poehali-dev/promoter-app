@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Icon from '@/components/ui/icon';
 import { useToast } from '@/hooks/use-toast';
 import YandexMap from '@/components/YandexMap';
+import { offlineStorage, isOnline, syncPendingActions } from '@/utils/offlineStorage';
 
 interface RoutePoint {
   id: number;
@@ -36,32 +37,100 @@ const Index = () => {
   const [routePoints, setRoutePoints] = useState<RoutePoint[]>([]);
   const [routeId, setRouteId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [online, setOnline] = useState(isOnline());
+  const [syncing, setSyncing] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
     loadRouteData();
+    updatePendingCount();
+
+    const handleOnline = () => {
+      setOnline(true);
+      performSync();
+    };
+    const handleOffline = () => setOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
+  const updatePendingCount = () => {
+    setPendingCount(offlineStorage.getPendingActions().length);
+  };
+
+  const performSync = async () => {
+    if (!isOnline() || syncing) return;
+
+    setSyncing(true);
+    try {
+      const result = await syncPendingActions(API_ROUTES, API_REPORTS);
+      
+      if (result.synced > 0) {
+        toast({
+          title: 'Синхронизация завершена! ✅',
+          description: `Отправлено ${result.synced} действий на сервер`,
+        });
+        updatePendingCount();
+        await loadRouteData();
+      }
+    } catch (error) {
+      console.error('Sync failed:', error);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const loadRouteData = async () => {
+    const cached = offlineStorage.getRouteData();
+    
+    if (cached && !isOnline()) {
+      setRouteId(cached.id);
+      setRoutePoints(cached.points);
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await fetch(`${API_ROUTES}?promoter_id=1&date=${new Date().toISOString().split('T')[0]}`);
       const data = await response.json();
       
       if (data && data.id) {
-        setRouteId(data.id);
-        setRoutePoints(data.points.map((p: any) => ({
-          ...p,
-          leaflets: p.leaflets_distributed || 0
-        })));
+        const routeData = {
+          id: data.id,
+          points: data.points.map((p: any) => ({
+            ...p,
+            leaflets: p.leaflets_distributed || 0
+          }))
+        };
+        
+        setRouteId(routeData.id);
+        setRoutePoints(routeData.points);
+        offlineStorage.saveRouteData(routeData);
       } else {
         await fetch(API_INIT, { method: 'POST' });
         await loadRouteData();
       }
     } catch (error) {
-      toast({
-        title: 'Ошибка',
-        description: 'Не удалось загрузить маршрут',
-        variant: 'destructive'
-      });
+      if (cached) {
+        setRouteId(cached.id);
+        setRoutePoints(cached.points);
+        toast({
+          title: 'Офлайн-режим',
+          description: 'Работаем с сохранёнными данными',
+        });
+      } else {
+        toast({
+          title: 'Ошибка',
+          description: 'Не удалось загрузить маршрут',
+          variant: 'destructive'
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -81,66 +150,91 @@ const Index = () => {
       return;
     }
 
-    try {
-      await fetch(API_ROUTES, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'complete_point',
-          point_id: selectedPoint.id,
-          leaflets: parseInt(leafletCount),
-          photo_url: photoFile ? 'uploaded' : null
-        })
-      });
+    const updatedPoints = routePoints.map(p =>
+      p.id === selectedPoint.id
+        ? { ...p, completed: true, leaflets: parseInt(leafletCount), leaflets_distributed: parseInt(leafletCount) }
+        : p
+    );
+    
+    setRoutePoints(updatedPoints);
+    offlineStorage.saveRouteData({ id: routeId, points: updatedPoints });
 
-      setRoutePoints(points =>
-        points.map(p =>
-          p.id === selectedPoint.id
-            ? { ...p, completed: true, leaflets: parseInt(leafletCount), leaflets_distributed: parseInt(leafletCount) }
-            : p
-        )
-      );
+    const actionData = {
+      action: 'complete_point',
+      point_id: selectedPoint.id,
+      leaflets: parseInt(leafletCount),
+      photo_url: photoFile ? 'uploaded' : null
+    };
 
+    if (isOnline()) {
+      try {
+        await fetch(API_ROUTES, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(actionData)
+        });
+
+        toast({
+          title: 'Точка выполнена! 🎉',
+          description: `Роздано ${leafletCount} листовок`,
+        });
+      } catch (error) {
+        offlineStorage.addPendingAction('complete_point', actionData);
+        updatePendingCount();
+        toast({
+          title: 'Сохранено офлайн 💾',
+          description: 'Отправим на сервер при подключении',
+        });
+      }
+    } else {
+      offlineStorage.addPendingAction('complete_point', actionData);
+      updatePendingCount();
       toast({
-        title: 'Точка выполнена! 🎉',
-        description: `Роздано ${leafletCount} листовок`,
-      });
-
-      setSelectedPoint(null);
-      setLeafletCount('');
-      setPhotoFile(null);
-    } catch (error) {
-      toast({
-        title: 'Ошибка',
-        description: 'Не удалось сохранить данные',
-        variant: 'destructive'
+        title: 'Сохранено офлайн 💾',
+        description: 'Отправим на сервер при подключении',
       });
     }
+
+    setSelectedPoint(null);
+    setLeafletCount('');
+    setPhotoFile(null);
   };
 
   const handleSendReport = async () => {
     if (!routeId) return;
 
-    try {
-      const response = await fetch(API_REPORTS, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ route_id: routeId })
-      });
-      
-      const result = await response.json();
+    const actionData = { route_id: routeId };
 
-      if (result.status === 'sent') {
+    if (isOnline()) {
+      try {
+        const response = await fetch(API_REPORTS, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(actionData)
+        });
+        
+        const result = await response.json();
+
+        if (result.status === 'sent') {
+          toast({
+            title: 'Отчёт отправлен! 📊',
+            description: `Выполнено ${result.summary.completed} из ${result.summary.total} точек`,
+          });
+        }
+      } catch (error) {
+        offlineStorage.addPendingAction('send_report', actionData);
+        updatePendingCount();
         toast({
-          title: 'Отчёт отправлен! 📊',
-          description: `Выполнено ${result.summary.completed} из ${result.summary.total} точек`,
+          title: 'Сохранено офлайн 💾',
+          description: 'Отчёт отправится при подключении',
         });
       }
-    } catch (error) {
+    } else {
+      offlineStorage.addPendingAction('send_report', actionData);
+      updatePendingCount();
       toast({
-        title: 'Ошибка',
-        description: 'Не удалось отправить отчёт',
-        variant: 'destructive'
+        title: 'Сохранено офлайн 💾',
+        description: 'Отчёт отправится при подключении',
       });
     }
   };
@@ -166,12 +260,25 @@ const Index = () => {
             </div>
             <div>
               <h1 className="text-lg font-semibold">Электрик 24/7</h1>
-              <p className="text-xs text-primary-foreground/80">Раздача листовок</p>
+              <p className="text-xs text-primary-foreground/80">Калининград</p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" className="text-primary-foreground hover:bg-primary-foreground/10">
-            <Icon name="Settings" size={20} />
-          </Button>
+          <div className="flex items-center gap-2">
+            {!online && (
+              <Badge variant="secondary" className="bg-orange-500/20 text-orange-100 border-orange-500/30">
+                <Icon name="WifiOff" size={14} className="mr-1" />
+                Офлайн
+              </Badge>
+            )}
+            {pendingCount > 0 && (
+              <Badge variant="secondary" className="bg-primary-foreground/20 text-primary-foreground">
+                {pendingCount}
+              </Badge>
+            )}
+            {syncing && (
+              <Icon name="RefreshCw" size={20} className="animate-spin text-primary-foreground" />
+            )}
+          </div>
         </div>
       </div>
 
