@@ -6,8 +6,10 @@ import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Icon from '@/components/ui/icon';
 import { useToast } from '@/hooks/use-toast';
+import YandexMap from '@/components/YandexMap';
 
 interface RoutePoint {
   id: number;
@@ -24,6 +26,7 @@ const Index = () => {
   const [selectedPoint, setSelectedPoint] = useState<RoutePoint | null>(null);
   const [leafletCount, setLeafletCount] = useState<string>('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [activeTab, setActiveTab] = useState<string>('list');
 
   const [routePoints, setRoutePoints] = useState<RoutePoint[]>([
     { id: 1, address: 'ул. Ленина, д. 45', completed: false, leaflets: 0, lat: 55.7558, lng: 37.6173 },
@@ -123,15 +126,19 @@ const Index = () => {
           </div>
         </Card>
 
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Маршрут на сегодня</h2>
-          <Button size="sm" variant="outline" className="gap-2">
-            <Icon name="Navigation" size={16} />
-            Навигация
-          </Button>
-        </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="list" className="gap-2">
+              <Icon name="List" size={16} />
+              Список
+            </TabsTrigger>
+            <TabsTrigger value="map" className="gap-2">
+              <Icon name="Map" size={16} />
+              Карта
+            </TabsTrigger>
+          </TabsList>
 
-        <div className="space-y-3">
+          <TabsContent value="list" className="space-y-3 mt-0">
           {routePoints.map((point, index) => (
             <Card
               key={point.id}
@@ -183,7 +190,22 @@ const Index = () => {
               </div>
             </Card>
           ))}
-        </div>
+          </TabsContent>
+
+          <TabsContent value="map" className="mt-0">
+            <Card className="overflow-hidden">
+              <YandexMap
+                points={routePoints}
+                onPointClick={(pointId) => {
+                  const point = routePoints.find(p => p.id === pointId);
+                  if (point && !point.completed) {
+                    setSelectedPoint(point);
+                  }
+                }}
+              />
+            </Card>
+          </TabsContent>
+        </Tabs>
 
         <Card className="p-4 bg-primary/5 border-primary/20">
           <div className="flex items-start gap-3">
