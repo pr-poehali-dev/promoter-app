@@ -1,0 +1,23 @@
+{
+  "tests": [
+    {
+      "name": "Get report in JSON format",
+      "method": "GET",
+      "path": "/?route_id=1&format=json",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Send daily report",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "route_id": 1
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "status": "string"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

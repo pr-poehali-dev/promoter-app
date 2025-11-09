@@ -1,0 +1,35 @@
+{
+  "tests": [
+    {
+      "name": "Get route for promoter",
+      "method": "GET",
+      "path": "/?promoter_id=1",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "id": "number"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Create new route",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "create_route",
+        "promoter_id": 1,
+        "points": [
+          {
+            "address": "Тестовый адрес",
+            "lat": 55.7558,
+            "lng": 37.6173
+          }
+        ]
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "status": "created"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "name": "Initialize test data",
+      "method": "POST",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "status": "success"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

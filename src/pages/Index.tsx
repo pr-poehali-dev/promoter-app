@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,11 +15,17 @@ interface RoutePoint {
   id: number;
   address: string;
   completed: boolean;
-  leaflets: number;
+  leaflets_distributed?: number;
+  leaflets?: number;
+  photo_url?: string;
   photo?: string;
   lat: number;
   lng: number;
 }
+
+const API_ROUTES = 'https://functions.poehali.dev/04d34c4c-21ba-43a0-b033-623e734f9454';
+const API_REPORTS = 'https://functions.poehali.dev/1e1c9585-5a59-40e8-9464-9e1f9c99a21b';
+const API_INIT = 'https://functions.poehali.dev/47050e92-e795-45d0-b1a3-a767f59d06be';
 
 const Index = () => {
   const { toast } = useToast();
@@ -27,21 +33,45 @@ const Index = () => {
   const [leafletCount, setLeafletCount] = useState<string>('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [activeTab, setActiveTab] = useState<string>('list');
+  const [routePoints, setRoutePoints] = useState<RoutePoint[]>([]);
+  const [routeId, setRouteId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const [routePoints, setRoutePoints] = useState<RoutePoint[]>([
-    { id: 1, address: 'ул. Ленина, д. 45', completed: false, leaflets: 0, lat: 55.7558, lng: 37.6173 },
-    { id: 2, address: 'пр. Мира, д. 12', completed: true, leaflets: 25, lat: 55.7598, lng: 37.6273 },
-    { id: 3, address: 'ул. Советская, д. 78', completed: true, leaflets: 30, lat: 55.7518, lng: 37.6373 },
-    { id: 4, address: 'ул. Кирова, д. 23', completed: false, leaflets: 0, lat: 55.7578, lng: 37.6073 },
-    { id: 5, address: 'пр. Победы, д. 56', completed: false, leaflets: 0, lat: 55.7538, lng: 37.6473 },
-    { id: 6, address: 'ул. Гагарина, д. 34', completed: false, leaflets: 0, lat: 55.7618, lng: 37.6173 },
-  ]);
+  useEffect(() => {
+    loadRouteData();
+  }, []);
+
+  const loadRouteData = async () => {
+    try {
+      const response = await fetch(`${API_ROUTES}?promoter_id=1&date=${new Date().toISOString().split('T')[0]}`);
+      const data = await response.json();
+      
+      if (data && data.id) {
+        setRouteId(data.id);
+        setRoutePoints(data.points.map((p: any) => ({
+          ...p,
+          leaflets: p.leaflets_distributed || 0
+        })));
+      } else {
+        await fetch(API_INIT, { method: 'POST' });
+        await loadRouteData();
+      }
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось загрузить маршрут',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const completedCount = routePoints.filter(p => p.completed).length;
   const totalLeaflets = routePoints.reduce((sum, p) => sum + p.leaflets, 0);
   const progressPercent = (completedCount / routePoints.length) * 100;
 
-  const handleCompletePoint = () => {
+  const handleCompletePoint = async () => {
     if (!selectedPoint || !leafletCount) {
       toast({
         title: 'Ошибка',
@@ -51,22 +81,79 @@ const Index = () => {
       return;
     }
 
-    setRoutePoints(points =>
-      points.map(p =>
-        p.id === selectedPoint.id
-          ? { ...p, completed: true, leaflets: parseInt(leafletCount) }
-          : p
-      )
+    try {
+      await fetch(API_ROUTES, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'complete_point',
+          point_id: selectedPoint.id,
+          leaflets: parseInt(leafletCount),
+          photo_url: photoFile ? 'uploaded' : null
+        })
+      });
+
+      setRoutePoints(points =>
+        points.map(p =>
+          p.id === selectedPoint.id
+            ? { ...p, completed: true, leaflets: parseInt(leafletCount), leaflets_distributed: parseInt(leafletCount) }
+            : p
+        )
+      );
+
+      toast({
+        title: 'Точка выполнена! 🎉',
+        description: `Роздано ${leafletCount} листовок`,
+      });
+
+      setSelectedPoint(null);
+      setLeafletCount('');
+      setPhotoFile(null);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось сохранить данные',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleSendReport = async () => {
+    if (!routeId) return;
+
+    try {
+      const response = await fetch(API_REPORTS, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ route_id: routeId })
+      });
+      
+      const result = await response.json();
+
+      if (result.status === 'sent') {
+        toast({
+          title: 'Отчёт отправлен! 📊',
+          description: `Выполнено ${result.summary.completed} из ${result.summary.total} точек`,
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось отправить отчёт',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Icon name="Loader2" size={48} className="animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Загрузка маршрута...</p>
+        </div>
+      </div>
     );
-
-    toast({
-      title: 'Точка выполнена! 🎉',
-      description: `Роздано ${leafletCount} листовок`,
-    });
-
-    setSelectedPoint(null);
-    setLeafletCount('');
-    setPhotoFile(null);
   };
 
   return (
@@ -220,7 +307,7 @@ const Index = () => {
 
       <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border p-4 shadow-lg">
         <div className="max-w-4xl mx-auto flex gap-3">
-          <Button className="flex-1 gap-2 h-12 text-base font-medium" size="lg">
+          <Button onClick={handleSendReport} className="flex-1 gap-2 h-12 text-base font-medium" size="lg">
             <Icon name="Send" size={20} />
             Отправить отчёт
           </Button>
